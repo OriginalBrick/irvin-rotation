@@ -1,0 +1,26 @@
+{
+    "id": "5A7144BD",
+    "path": "~/Irvin Rotation/7_lipid_metabolite_stratification.R",
+    "project_path": "7_lipid_metabolite_stratification.R",
+    "type": "r_source",
+    "hash": "718780220",
+    "contents": "",
+    "dirty": true,
+    "created": 1765309022257.0,
+    "source_on_save": true,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "2,16",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1765312540,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1765396862919,
+    "read_only": false,
+    "read_only_alternatives": []
+}

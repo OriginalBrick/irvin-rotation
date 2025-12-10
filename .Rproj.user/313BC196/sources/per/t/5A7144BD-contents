@@ -1,0 +1,144 @@
+library(tidyverse)
+library(car)
+library(writexl)
+
+# Import data
+data_aa <- read.csv("aa_combo.csv", header = TRUE)
+data_ea <- read.csv("ea_combo.csv", header = TRUE)
+
+# Separate metabolites
+data_aa_mtb <- data_aa %>%
+  select(id_num:baseline_stroke, apoe_4, s1p_, anandamide:xanthurenic_acid)
+data_ea_mtb <- data_ea %>%
+  select(id_num:baseline_stroke, apoe_4, s1p_, anandamide:xanthurenic_acid)
+
+# Separate lipids
+data_aa_lpd <- data_aa %>%
+  select(id_num:baseline_stroke, apoe_4, lpc226_4:tg5203rd_84)
+data_ea_lpd <- data_ea %>%
+  select(id_num:baseline_stroke, apoe_4, lpc226_4:tg5203rd_84)
+
+# Import combined lipids and metabolites
+data_combo_mtb <- read_tsv("../output_mtb.txt") %>%
+  mutate(across(18, readr::parse_number)) %>%
+  rename_with(tolower) %>%
+  rename("pvalue_aa" = "pvalues_of_studies(tab_delimitered)",
+         "pvalue_ea" = "mvalues_of_studies(tab_delimitered)")
+data_combo_lpd <- read_tsv("../output_lpd.txt") %>%
+  mutate(across(18, readr::parse_number)) %>%
+  rename_with(tolower) %>%
+  rename("pvalue_aa" = "pvalues_of_studies(tab_delimitered)",
+         "pvalue_ea" = "mvalues_of_studies(tab_delimitered)")
+
+# Model function
+run_mwas_interaction <- function(main_data, metabolite_data, output_file) {
+  results <- list()
+  metabolites <- metabolite_data
+  
+  for (met in metabolites) {
+    formula <- as.formula(paste("incident_ecb ~", met, "* apoe_4 + age + gender + baseline_stroke"))
+    model <- glm(formula, data = main_data, family = binomial)
+    
+    interaction_term <- paste(met, ":apoe_4", sep = "")
+    coef_summary <- summary(model)$coefficients
+    
+    # Calculate joint p-value
+    joint_test <- linearHypothesis(model, c(paste0(met, " = 0"), paste0(met, ":apoe_4 = 0")), test = "Chisq")
+    joint_p <- joint_test$"Pr(>Chisq)"[2]
+    
+    # Extract interaction effect
+    if (interaction_term %in% rownames(coef_summary)) {
+      stats <- coef_summary[interaction_term, c("Estimate", "Std. Error", "Pr(>|z|)")]
+      names(stats) <- c("estimate", "std_err", "wald_p")
+    } else {
+      stats <- c(estimate = NA, std_error = NA, wald_p = NA)
+    }
+    
+    # Add joint p-value to results
+    results[[met]] <- c(stats, joint_p = joint_p)
+  }
+  
+  # Convert to data frame
+  df <- do.call(rbind, results)
+  df <- as.data.frame(df)
+  df$metabolite <- rownames(df)
+  df$wald_p <- as.numeric(df$wald_p)
+  df$log_wald_p <- -log10(df$wald_p)
+  df$log_joint_p <- -log10(df$joint_p)
+  df <- df[, c("metabolite", "estimate", "std_err", "wald_p", "log_wald_p", "joint_p", "log_joint_p")]
+  
+  # Save to file
+  write.csv(df, file = output_file, row.names = FALSE)
+  
+  return(df)
+}
+
+# Call model function
+run_mwas_interaction(data_aa_lpd, colnames(data_aa_lpd)[9:ncol(data_aa_lpd)], "mwas_results/mwas_interaction_aa_lipids.csv")
+run_mwas_interaction(data_ea_lpd, colnames(data_ea_lpd)[9:ncol(data_ea_lpd)], "mwas_results/mwas_interaction_ea_lipids.csv")
+run_mwas_interaction(data_aa_mtb, colnames(data_aa_mtb)[9:ncol(data_aa_mtb)], "mwas_results/mwas_interaction_aa_metabolites.csv")
+run_mwas_interaction(data_ea_mtb, colnames(data_ea_mtb)[9:ncol(data_ea_mtb)], "mwas_results/mwas_interaction_ea_metabolites.csv")
+
+# Read in saved data
+results_aa_lpd <- read.csv("mwas_results/mwas_interaction_aa_lipids.csv", header = TRUE) %>%
+  mutate(joint_fdr = p.adjust(joint_p, method = "fdr"))
+results_ea_lpd <- read.csv("mwas_results/mwas_interaction_ea_lipids.csv", header = TRUE) %>%
+  mutate(joint_fdr = p.adjust(joint_p, method = "fdr"))
+results_aa_mtb <- read.csv("mwas_results/mwas_interaction_aa_metabolites.csv", header = TRUE) %>%
+  mutate(joint_fdr = p.adjust(joint_p, method = "fdr"))
+results_ea_mtb <- read.csv("mwas_results/mwas_interaction_ea_metabolites.csv", header = TRUE) %>%
+  mutate(joint_fdr = p.adjust(joint_p, method = "fdr"))
+
+# Annnnd the fdr doesn't look much better...
+# So let's just work with the combined model from MetaSoft
+
+top_mtb <- data_combo_mtb %>%
+  # Add FDR correction
+  mutate(fdr_re = p.adjust(pvalue_re2, method = "fdr")) %>%
+  # Filter on p-value threshold
+  filter(pvalue_re2 < 0.05) %>%
+  # Add confidence intervals and order metabolites
+  mutate(
+    lower_ci = beta_re - 1.96 * std_re,
+    upper_ci = beta_re + 1.96 * std_re,
+  )
+
+top_lpd <- data_combo_lpd %>%
+  # Add FDR correction
+  mutate(fdr_re = p.adjust(pvalue_re2, method = "fdr")) %>%
+  # Filter on p-value threshold
+  filter(pvalue_re2 < 0.05) %>%
+  # Add confidence intervals and order metabolites
+  mutate(
+    lower_ci = beta_re - 1.96 * std_re,
+    upper_ci = beta_re + 1.96 * std_re,
+  )
+
+# Only the metabolites have anything significant... But that's before FDR adjustment.
+# Let's export our final data.
+
+final_mtb <- top_mtb %>%
+  select(rsid, beta_re, std_re, pvalue_re2, fdr_re, lower_ci, upper_ci) %>%
+  rename(
+    metabolite = rsid,
+    beta = beta_re,
+    std = std_re,
+    pvalue = pvalue_re2,
+    fdr = fdr_re
+  ) %>%
+  slice_min(order_by = pvalue, n = 10)
+write_xlsx(final_mtb,"final_mtb.xlsx")
+
+final_mtb_forest <- ggplot(final_mtb, aes(x = metabolite, y = beta)) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_errorbar(aes(ymin = lower_ci, ymax = upper_ci), width = 0.2, color = "gray40") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  scale_y_continuous(limits = c(-2.2, 2.2)) +
+  coord_flip() +
+  labs(
+    title = "Metabolite-APOE4 Interaction Plot",
+    x = "Metabolite",
+    y = "Log Odds Ratio (95% CI)"
+  ) +
+  theme_minimal()
+ggsave("final_mtb.png", plot = final_mtb_forest)
