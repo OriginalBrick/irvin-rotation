@@ -25,6 +25,9 @@ data_aa_clean <- data_aa %>%
   # Drop columns with missing incident_ecb values
   drop_na(incident_ecb) %>%
   
+  # Drop columns where baseline_ecb = 1
+  filter(incident_ecb != 1) %>%
+  
   # Recode non-numeric demographics
   mutate(
     gender = case_match(
@@ -68,6 +71,9 @@ data_ea_clean <- data_ea %>%
   
   # Drop columns with missing incident_ecb values
   drop_na(incident_ecb) %>%
+  
+  # Drop columns where baseline_ecb = 1
+  filter(incident_ecb != 1) %>%
   
   # Recode non-numeric demographics
   mutate(
